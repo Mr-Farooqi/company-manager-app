@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Company Manager</title>
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Company Manager">
+<meta name="theme-color" content="#4f46e5">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{--bg:#f6f7fb;--card:#fff;--tx:#1a1d26;--mu:#6b7280;--bd:#e3e6ee;--ac:#4f46e5;--ac2:#fff;--dg:#dc2626;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1117;--card:#181b24;--tx:#eceef5;--mu:#9aa1b2;--bd:#2a2f3c;--ac:#818cf8;--ac2:#0f1117;--dg:#f87171;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0f1117;--card:#181b24;--tx:#eceef5;--mu:#9aa1b2;--bd:#2a2f3c;--ac:#818cf8;--ac2:#0f1117;--dg:#f87171;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+.wrap{max-width:640px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:4px 0 14px}h2{font-size:16px;margin:0 0 10px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:12px}
+label{display:block;font-size:12px;color:var(--mu);margin:8px 0 3px}
+input{width:100%;padding:10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx);font-size:15px}
+button{border:0;border-radius:8px;padding:10px 14px;font-size:14px;cursor:pointer;background:var(--ac);color:var(--ac2);margin-top:12px}
+button.g{background:transparent;color:var(--ac);border:1px solid var(--bd);margin:0}
+button.d{background:transparent;color:var(--dg);border:1px solid var(--bd);margin:0;padding:6px 10px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.mu{color:var(--mu);font-size:13px}
+.item{border-top:1px solid var(--bd);padding:10px 0}
+.item:first-child{border-top:0}
+.err{color:var(--dg);font-size:13px;margin-top:8px}
+.note{font-size:12px;color:var(--mu);margin-top:8px}
+.grid{overflow-x:auto}
+.hero{min-height:80vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px}
+.hero .logo{font-size:64px}
+.hero h1{font-size:28px;margin:8px 0}
+button.big{font-size:17px;padding:14px 28px;border-radius:12px;margin-top:22px}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<script src="jspdf.umd.min.js"></script>
+<script>
+let S={companies:[]},view=null,err="";
+const KEY="cm_data_v1";
+try{const r=localStorage.getItem(KEY);if(r)S=JSON.parse(r)}catch(e){}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const uid=()=>Math.random().toString(36).slice(2,10);
+const pw=o=>o.password!==undefined?esc(o.password):'(purana hash, dobara banao)';
+async function hash(p){
+  const salt=uid()+uid();
+  const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(salt+p));
+  return salt+":"+[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("");
+}
+const v=id=>document.getElementById(id).value.trim();
+
+function home(){
+  const list=S.companies.map(c=>`<div class="item row"><div><b>${esc(c.name)}</b><div class="mu">Users: ${c.users.length}</div></div>
+  <div><button class="g" onclick="open_('${c.id}')">Open</button> <button class="d" onclick="delC('${c.id}')">Delete</button></div></div>`).join("")||'<div class="mu">Abhi koi company nahi hai.</div>';
+  return `<button class="g" onclick="goHome()" style="margin:0 0 10px">🏠 Home</button>
+  <h1>🏢 Company Manager</h1>
+  <div class="card"><h2>Companies</h2>${list}</div>
+  <div class="card"><h2>Nayi Company banao</h2>
+  <label>Company name</label><input id="cn">
+  <label>Company URL (website link)</label><input id="cu" inputmode="url" placeholder="https://example.com">
+  <label>Referral mobile number</label><input id="rm" inputmode="numeric">
+  <label>Referral ID</label><input id="ri">
+  <label>Referral UPI ID</label><input id="ru" placeholder="name@bank">
+  <label>Referral total deposit</label><input id="rd" type="number" min="0" value="0">
+  <label>Password</label><input id="cp">
+  <div class="err">${esc(err)}</div>
+  <button onclick="addC()">Company banao</button>
+  <div class="note">Data sirf is browser me store hota hai.</div></div>`;
+}
+function detail(c){
+  const rows=c.users.map(u=>`<div class="item row"><div><b>${esc(u.mobile)}</b>
+  <div class="mu">UPI: ${esc(u.upi)} · Deposit: ₹${esc(u.deposit)}<br>Password: ${pw(u)}</div></div>
+  <button class="d" onclick="delU('${u.id}')">Delete</button></div>`).join("")||'<div class="mu">Is company me abhi koi user nahi.</div>';
+  return `<button class="g" onclick="back()" style="margin:0 0 10px">← Back</button>
+  <h1>${esc(c.name)}</h1>
+  <button onclick="pdf('${c.id}')" style="margin:0 0 12px">📄 PDF download</button>
+  <div class="card"><h2>Company details</h2><div class="mu">Company URL: ${c.url?`<a href="${esc(c.url)}" target="_blank" rel="noopener" style="color:var(--ac)">${esc(c.url)}</a>`:'-'}<br>Referral mobile: ${esc(c.refMobile)}<br>Referral ID: ${esc(c.refId)}<br>Referral UPI: ${esc(c.refUpi)}<br>Referral total deposit: ₹${esc(c.refDeposit)}<br>Password: ${pw(c)}</div>
+  <label>Company URL change / add karo</label><input id="eu" inputmode="url" value="${esc(c.url||'')}" placeholder="https://example.com">
+  <button class="g" style="margin-top:8px" onclick="saveUrl()">URL save karo</button></div>
+  <div class="card"><h2>Users (${c.users.length})</h2><div class="grid">${rows}</div></div>
+  <div class="card"><h2>User add karo</h2>
+  <label>Mobile number</label><input id="um" inputmode="numeric">
+  <label>UPI ID</label><input id="uu" placeholder="name@bank">
+  <label>Total deposit</label><input id="ud" type="number" min="0" value="0">
+  <label>Password</label><input id="up">
+  <div class="err">${esc(err)}</div>
+  <button onclick="addU()">User save karo</button></div>`;
+}
+let started=false,help=false,deferred=null;
+window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferred=e});
+async function installApp(){
+  if(deferred){deferred.prompt();try{await deferred.userChoice}catch(e){}deferred=null;return}
+  help=!help;render();
+}
+function landing(){
+  return `<div class="hero"><div class="logo">🏢</div><h1>Company Manager</h1>
+  <p class="mu">Company banao, users add karo aur sab ka data PDF me download karo.</p>
+  <div class="mu" style="margin-top:6px">Companies: ${S.companies.length}</div>
+  <button class="big" onclick="start()">▶ System chalu karo</button>
+  <button class="g" onclick="installApp()" style="margin-top:12px;padding:12px 22px">📲 Download App</button>
+  ${help?`<div class="card" style="text-align:left;margin-top:14px"><h2>Home screen par add karo</h2>
+  <div class="mu"><b>Android (Chrome):</b> upar ⋮ menu → <b>Install app</b> ya <b>Add to Home screen</b>.<br><br>
+  <b>iPhone (Safari):</b> Share button → <b>Add to Home Screen</b>.</div></div>`:''}</div>`;
+}
+function start(){started=true;view=null;err="";render()}
+function goHome(){started=false;view=null;err="";render()}
+function render(){
+  const c=S.companies.find(x=>x.id===view);
+  document.getElementById("app").innerHTML=!started?landing():c?detail(c):home();
+}
+function open_(id){view=id;err="";render();scrollTo(0,0)}
+async function pdf(id){
+  const c=S.companies.find(x=>x.id===id);
+  if(!window.jspdf){alert("PDF library load nahi hui. Page reload karo.");return}
+    const t=s=>String(s).replace(/[^\x20-\x7E]/g,"?");
+  const pwt=o=>o.password!==undefined?o.password:"(purana hash)";
+  const d=new jspdf.jsPDF({unit:"mm",format:"a4"});
+  let y=18;
+  const line=(s,sz=11,b=false,gap=6)=>{
+    if(y>280){d.addPage();y=18}
+    d.setFont("helvetica",b?"bold":"normal");d.setFontSize(sz);
+    d.text(t(s),15,y);y+=gap;
+  };
+  const sum=c.users.reduce((a,u)=>a+(Number(u.deposit)||0),0);
+  line("Company: "+c.name,18,true,10);
+  line("Company Data",13,true,8);
+  line("Company URL: "+(c.url||"-"));
+  line("Referral mobile number: "+c.refMobile);
+  line("Referral ID: "+c.refId);
+  line("Referral UPI ID: "+c.refUpi);
+  line("Referral total deposit: Rs. "+c.refDeposit);
+  line("Password: "+pwt(c),11,false,10);
+  line("Users Data ("+c.users.length+" users, total deposit Rs. "+sum+")",13,true,8);
+  if(!c.users.length)line("Koi user nahi hai.");
+  c.users.forEach((u,i)=>{
+    if(y>255){d.addPage();y=18}
+    line((i+1)+". Mobile number: "+u.mobile,11,true);
+    line("    UPI ID: "+u.upi);
+    line("    Total deposit: Rs. "+u.deposit);
+    line("    Password: "+pwt(u),11,false,4);
+    d.setDrawColor(200);d.line(15,y,195,y);y+=6;
+  });
+  const fn=(c.name.replace(/[^\w\-]+/g,"_")||"company")+".pdf";
+  d.save(fn);
+}
+function normUrl(s){s=s.trim();if(!s)return "";if(!/^https?:\/\//i.test(s))s="https://"+s;try{new URL(s);return s}catch(e){return null}}
+function saveUrl(){
+  const c=S.companies.find(x=>x.id===view);
+  const u=normUrl(document.getElementById("eu").value);
+  if(u===null){alert("Company URL sahi nahi hai.");return}
+  c.url=u;save();render();
+}
+function back(){view=null;err="";render()}
+function delC(id){if(confirm("Company aur uske sab users delete karein?")){S.companies=S.companies.filter(c=>c.id!==id);save();render()}}
+function delU(id){const c=S.companies.find(x=>x.id===view);if(confirm("User delete karein?")){c.users=c.users.filter(u=>u.id!==id);save();render()}}
+async function addC(){
+  const o={name:v("cn"),url:v("cu"),refMobile:v("rm"),refId:v("ri"),refUpi:v("ru"),refDeposit:Number(v("rd"))||0,pw:document.getElementById("cp").value};
+  if(!o.name||!o.refMobile||!o.refId||!o.refUpi||!o.pw){err="Saari fields bharo.";return render()}
+  if(!/^\d{10}$/.test(o.refMobile)){err="Mobile number 10 digit ka hona chahiye.";return render()}
+  if(!/^[\w.\-]{2,}@[\w]{2,}$/.test(o.refUpi)){err="UPI ID sahi format me daalo (name@bank).";return render()}
+  const url=normUrl(o.url);if(url===null){err="Company URL sahi nahi hai.";return render()}
+  S.companies.push({id:uid(),name:o.name,url,refMobile:o.refMobile,refId:o.refId,refUpi:o.refUpi,refDeposit:o.refDeposit,password:o.pw,users:[]});
+  err="";save();render();
+}
+async function addU(){
+  const c=S.companies.find(x=>x.id===view);
+  const mobile=v("um"),upi=v("uu"),dep=Number(v("ud"))||0,pwd=document.getElementById("up").value;
+  if(!mobile||!upi||!pwd){err="Saari fields bharo.";return render()}
+  if(!/^\d{10}$/.test(mobile)){err="Mobile number 10 digit ka hona chahiye.";return render()}
+  if(!/^[\w.\-]{2,}@[\w]{2,}$/.test(upi)){err="UPI ID sahi format me daalo (name@bank).";return render()}
+  if(c.users.some(u=>u.mobile===mobile)){err="Ye mobile number already added hai.";return render()}
+  c.users.push({id:uid(),mobile,upi,deposit:dep,password:pwd});
+  err="";save();render();
+}
+render();
+if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
+window.addEventListener("appinstalled",()=>{deferred=null});
+</script>
+</body>
+</html>
